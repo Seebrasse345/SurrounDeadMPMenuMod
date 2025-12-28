@@ -2,7 +2,7 @@
 -- Shows the built-in MP menu (if hidden) and wires Host/Join to open commands.
 
 local MOD_NAME = "SurrounDeadMPMenu"
-local VERSION = "1.0.9"
+local VERSION = "1.1.0"
 
 local Config = {
     HostMap = "LongdownValley",
@@ -46,6 +46,20 @@ end
 
 local FindGameNetDriver
 
+local function NormalizePath(path)
+    if not path then return nil end
+    return tostring(path):gsub("/", "\\")
+end
+
+local function EnsureTrailingSlash(path)
+    if not path then return nil end
+    path = NormalizePath(path)
+    if not path:match("[\\/]$") then
+        path = path .. "\\"
+    end
+    return path
+end
+
 local function GetScriptDir()
     local info = debug.getinfo(1, "S")
     if not info or not info.source then
@@ -63,6 +77,59 @@ local function GetModDir()
     return (scriptDir:gsub("[\\/]+Scripts[\\/]+$", "\\"))
 end
 
+local function GetProjectDir()
+    local dir = nil
+    pcall(function()
+        if StaticFindObject then
+            local KSL = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+            if KSL and KSL.GetProjectDirectory then
+                dir = KSL:GetProjectDirectory()
+            end
+        end
+    end)
+    if dir and dir ~= "" then
+        return EnsureTrailingSlash(dir)
+    end
+    return nil
+end
+
+local function GetModDirCandidates()
+    local dirs = {}
+
+    local scriptDir = GetScriptDir()
+    if scriptDir then
+        local modDir = scriptDir:gsub("[\\/]+Scripts[\\/]+$", "\\")
+        modDir = EnsureTrailingSlash(modDir)
+        if modDir then
+            dirs[#dirs + 1] = modDir
+        end
+    end
+
+    local projectDir = GetProjectDir()
+    if projectDir then
+        dirs[#dirs + 1] = EnsureTrailingSlash(projectDir .. "Binaries\\Win64\\Mods\\" .. MOD_NAME)
+        dirs[#dirs + 1] = EnsureTrailingSlash(projectDir .. "SurrounDead\\Binaries\\Win64\\Mods\\" .. MOD_NAME)
+    end
+
+    if os.getenv then
+        local cwd = os.getenv("CD") or os.getenv("PWD")
+        if cwd and cwd ~= "" then
+            dirs[#dirs + 1] = EnsureTrailingSlash(cwd .. "\\Mods\\" .. MOD_NAME)
+        end
+    end
+
+    local unique = {}
+    local result = {}
+    for _, dir in ipairs(dirs) do
+        if dir and not unique[dir] then
+            unique[dir] = true
+            result[#result + 1] = dir
+        end
+    end
+
+    return result
+end
+
 local function ReadTrimmedFile(path)
     local f = io.open(path, "r")
     if not f then return nil end
@@ -72,6 +139,25 @@ local function ReadTrimmedFile(path)
     local trimmed = content:gsub("%s+", "")
     if trimmed == "" then return nil end
     return trimmed
+end
+
+local function ReadTrimmedFileFromCandidates(filename)
+    local dirs = GetModDirCandidates()
+    for _, dir in ipairs(dirs) do
+        local path = dir .. filename
+        local f = io.open(path, "r")
+        if f then
+            local content = f:read("*all")
+            f:close()
+            if content then
+                local trimmed = content:gsub("%s+", "")
+                if trimmed ~= "" then
+                    return trimmed, path
+                end
+            end
+        end
+    end
+    return nil, nil
 end
 
 local function RunInGameThread(fn)
@@ -162,9 +248,9 @@ local function GetJoinIP()
         return menuIP
     end
 
-    local modDir = GetModDir()
-    local fileIP = ReadTrimmedFile(modDir .. "join_ip.txt")
+    local fileIP, filePath = ReadTrimmedFileFromCandidates("join_ip.txt")
     if fileIP then
+        Log("Join IP resolved: " .. fileIP .. " (" .. filePath .. ")")
         return fileIP
     end
 
@@ -172,9 +258,9 @@ local function GetJoinIP()
 end
 
 local function GetHostMap()
-    local modDir = GetModDir()
-    local fileMap = ReadTrimmedFile(modDir .. "host_map.txt")
+    local fileMap, filePath = ReadTrimmedFileFromCandidates("host_map.txt")
     if fileMap then
+        Log("Host map resolved: " .. fileMap .. " (" .. filePath .. ")")
         return fileMap
     end
 
@@ -761,6 +847,10 @@ local function Initialize()
     Log("Host map: " .. Config.HostMap)
     Log("Default join IP: " .. Config.DefaultJoinIP)
     Log("Edit host_map.txt and join_ip.txt in the mod folder to override.")
+    local dirs = GetModDirCandidates()
+    if #dirs > 0 then
+        Log("Mod dir candidates: " .. table.concat(dirs, "; "))
+    end
 
     RegisterTickHook()
     RegisterKeybinds()
