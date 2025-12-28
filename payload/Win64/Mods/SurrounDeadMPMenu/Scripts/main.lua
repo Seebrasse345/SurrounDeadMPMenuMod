@@ -2,7 +2,7 @@
 -- Shows the built-in MP menu (if hidden) and wires Host/Join to open commands.
 
 local MOD_NAME = "SurrounDeadMPMenu"
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
 
 local Config = {
     HostMap = "LongdownValley",
@@ -27,6 +27,7 @@ local State = {
     ConnHooksInstalled = false,
     NetHooksInstalled = false,
     FailureHooksInstalled = false,
+    LastPossessAttempt = 0,
 }
 
 local function Log(msg)
@@ -252,7 +253,56 @@ local function CheckClientConnections()
     if count ~= nil and count ~= State.LastConnCount then
         Log("Client connections: " .. tostring(count))
         State.LastConnCount = count
+        if State.IsHosting then
+            EnsureClientPossession()
+        end
     end
+end
+
+local function GetControllerPawn(pc)
+    if not IsValidObj(pc) then return nil end
+    local pawn = nil
+    pcall(function()
+        if pc.GetPawn then
+            pawn = pc:GetPawn()
+        end
+    end)
+    if not IsValidObj(pawn) then
+        pcall(function()
+            pawn = pc.Pawn
+        end)
+    end
+    if IsValidObj(pawn) then
+        return pawn
+    end
+    return nil
+end
+
+local function EnsureClientPossession()
+    if type(FindAllOf) ~= "function" then
+        return
+    end
+    local now = os.clock()
+    if now - State.LastPossessAttempt < 1.0 then
+        return
+    end
+    State.LastPossessAttempt = now
+
+    local gm = FindFirstOf("GameModeBase") or FindFirstOf("GameMode") or FindFirstOf("BP_MPGameMode_C") or FindFirstOf("BP_SurroundeadGameMode_C")
+    if not IsValidObj(gm) or not gm.RestartPlayer then
+        return
+    end
+
+    FindAllOf("PlayerController", function(pc)
+        if not IsValidObj(pc) then return end
+        local pawn = GetControllerPawn(pc)
+        if not pawn then
+            pcall(function()
+                gm:RestartPlayer(pc)
+            end)
+            Log("RestartPlayer issued for controller: " .. DescribeArg(pc))
+        end
+    end)
 end
 
 local function RunInGameThread(fn)
