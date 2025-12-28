@@ -2,7 +2,7 @@
 -- Shows the built-in MP menu (if hidden) and wires Host/Join to open commands.
 
 local MOD_NAME = "SurrounDeadMPMenu"
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 
 local Config = {
     HostMap = "LongdownValley",
@@ -25,6 +25,8 @@ local State = {
     LastConnCount = -1,
     NextConnCheck = 0,
     ConnHooksInstalled = false,
+    NetHooksInstalled = false,
+    FailureHooksInstalled = false,
 }
 
 local function Log(msg)
@@ -885,6 +887,60 @@ local function RegisterConnectionHooks()
     end
 end
 
+local function RegisterNetDriverHooks()
+    if State.NetHooksInstalled then return end
+    State.NetHooksInstalled = true
+
+    local hookDefs = {
+        { path = "/Script/Engine.NetDriver:NotifyAcceptingConnection", label = "AcceptingConnection" },
+        { path = "/Script/Engine.NetDriver:NotifyAcceptedConnection", label = "AcceptedConnection" },
+        { path = "/Script/Engine.NetDriver:NotifyAcceptedChannel", label = "AcceptedChannel" },
+        { path = "/Script/Engine.NetDriver:NotifyControlMessage", label = "ControlMessage" },
+    }
+
+    for _, def in ipairs(hookDefs) do
+        TryRegisterHook(def.path, function(self, ...)
+            local parts = {}
+            local args = { ... }
+            for i = 1, #args do
+                parts[#parts + 1] = DescribeArg(args[i])
+            end
+            local suffix = ""
+            if #parts > 0 then
+                suffix = " | " .. table.concat(parts, " | ")
+            end
+            Log("Conn " .. def.label .. suffix)
+        end)
+    end
+end
+
+local function RegisterFailureHooks()
+    if State.FailureHooksInstalled then return end
+    State.FailureHooksInstalled = true
+
+    local hookDefs = {
+        { path = "/Script/Engine.GameInstance:HandleNetworkFailure", label = "NetworkFailure" },
+        { path = "/Script/Engine.GameInstance:HandleTravelFailure", label = "TravelFailure" },
+        { path = "/Script/Engine.Engine:HandleNetworkFailure", label = "EngineNetworkFailure" },
+        { path = "/Script/Engine.Engine:HandleTravelFailure", label = "EngineTravelFailure" },
+    }
+
+    for _, def in ipairs(hookDefs) do
+        TryRegisterHook(def.path, function(self, ...)
+            local parts = {}
+            local args = { ... }
+            for i = 1, #args do
+                parts[#parts + 1] = DescribeArg(args[i])
+            end
+            local suffix = ""
+            if #parts > 0 then
+                suffix = " | " .. table.concat(parts, " | ")
+            end
+            Log("NetFail " .. def.label .. suffix)
+        end)
+    end
+end
+
 local function RegisterTickHook()
     local hookPaths = {
         "/Script/Engine.GameViewportClient:Tick",
@@ -983,6 +1039,8 @@ local function Initialize()
     RegisterTickHook()
     RegisterKeybinds()
     RegisterConnectionHooks()
+    RegisterNetDriverHooks()
+    RegisterFailureHooks()
 end
 
 Initialize()
