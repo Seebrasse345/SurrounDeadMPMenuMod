@@ -105,6 +105,82 @@ function Ensure-ConsoleKeys {
     Set-Content -LiteralPath $inputIni -Value $lines -Encoding ASCII
 }
 
+function Ensure-IniSectionLines {
+    param(
+        [string]$IniPath,
+        [string]$SectionHeader,
+        [string[]]$DesiredLines
+    )
+
+    if (-not (Test-Path -LiteralPath $IniPath)) {
+        New-Item -ItemType File -Force -Path $IniPath | Out-Null
+    }
+
+    $lines = @()
+    try {
+        $lines = Get-Content -LiteralPath $IniPath
+    } catch {
+        $lines = @()
+    }
+
+    $sectionIndex = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match ("^\s*\[" + [regex]::Escape($SectionHeader.Trim('[', ']')) + "\]\s*$")) {
+            $sectionIndex = $i
+            break
+        }
+    }
+
+    if ($sectionIndex -lt 0) {
+        $lines = $lines + $SectionHeader
+        $sectionIndex = $lines.Count - 1
+    }
+
+    $endIndex = $lines.Count
+    for ($i = $sectionIndex + 1; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^\s*\[.*\]\s*$') {
+            $endIndex = $i
+            break
+        }
+    }
+
+    $sectionLines = @()
+    if ($endIndex -gt ($sectionIndex + 1)) {
+        $sectionLines = $lines[($sectionIndex + 1)..($endIndex - 1)]
+    }
+
+    foreach ($line in $DesiredLines) {
+        if (-not ($sectionLines -contains $line)) {
+            $before = @()
+            if ($endIndex -gt 0) {
+                $before = $lines[0..($endIndex - 1)]
+            }
+            $after = @()
+            if ($endIndex -lt $lines.Count) {
+                $after = $lines[$endIndex..($lines.Count - 1)]
+            }
+            $lines = $before + $line + $after
+            $endIndex += 1
+            $sectionLines += $line
+        }
+    }
+
+    Set-Content -LiteralPath $IniPath -Value $lines -Encoding ASCII
+}
+
+function Ensure-IpNetDriverConfig {
+    $engineIni = Join-Path $env:LOCALAPPDATA 'SurrounDead\Saved\Config\Windows\Engine.ini'
+
+    Ensure-IniSectionLines -IniPath $engineIni -SectionHeader '[/Script/Engine.GameEngine]' -DesiredLines @(
+        '!NetDriverDefinitions=ClearArray',
+        '+NetDriverDefinitions=(DefName="GameNetDriver",DriverClassName="/Script/OnlineSubsystemUtils.IpNetDriver",DriverClassNameFallback="/Script/OnlineSubsystemUtils.IpNetDriver")'
+    )
+
+    Ensure-IniSectionLines -IniPath $engineIni -SectionHeader '[URL]' -DesiredLines @(
+        'Port=7777'
+    )
+}
+
 function Get-ModConfigSnapshot {
     param([string]$ModDir)
 
@@ -220,6 +296,7 @@ if (-not (Test-Path -LiteralPath $modsTxt) -or $needsMenu -or $needsKeybinds) {
 }
 
 Ensure-ConsoleKeys
+Ensure-IpNetDriverConfig
 
 Write-Host "Installed to: $targetWin64"
 Write-Host 'Done. Configure host_map.txt and join_ip.txt if needed.'

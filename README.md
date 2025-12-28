@@ -34,3 +34,4 @@ Edit these files after install:
 
 - Do NOT install the old shader PAK. It can crash with missing global shader errors.
 - The installer adds console keys to `%LOCALAPPDATA%\SurrounDead\Saved\Config\Windows\Input.ini`.
+- The installer forces `IpNetDriver` and sets `Port=7777` in `%LOCALAPPDATA%\SurrounDead\Saved\Config\Windows\Engine.ini`.
