@@ -2,7 +2,7 @@
 -- Shows the built-in MP menu (if hidden) and wires Host/Join to open commands.
 
 local MOD_NAME = "SurrounDeadMPMenu"
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 
 local Config = {
     HostMap = "LongdownValley",
@@ -28,6 +28,7 @@ local State = {
     NetHooksInstalled = false,
     FailureHooksInstalled = false,
     LastPossessAttempt = 0,
+    LastInputFix = 0,
 }
 
 local function Log(msg)
@@ -278,12 +279,47 @@ local function GetControllerPawn(pc)
     return nil
 end
 
+local function IsLocalController(pc)
+    if not IsValidObj(pc) then return false end
+    local isLocal = false
+    pcall(function()
+        if pc.IsLocalController then
+            isLocal = pc:IsLocalController()
+        end
+    end)
+    return isLocal
+end
+
+local function HasAuthority()
+    local pc = FindFirstOf("PlayerController")
+    if not IsValidObj(pc) then return false end
+    local auth = false
+    pcall(function()
+        if pc.HasAuthority then
+            auth = pc:HasAuthority()
+        end
+    end)
+    return auth
+end
+
+local function HasServerConnection()
+    local NetDriver = FindGameNetDriver()
+    if not NetDriver then
+        return false
+    end
+    local hasConn = false
+    pcall(function()
+        hasConn = (NetDriver.ServerConnection ~= nil)
+    end)
+    return hasConn
+end
+
 local function EnsureClientPossession()
     if type(FindAllOf) ~= "function" then
         return
     end
     local now = os.clock()
-    if now - State.LastPossessAttempt < 1.0 then
+    if now - State.LastPossessAttempt < 2.0 then
         return
     end
     State.LastPossessAttempt = now
@@ -295,14 +331,62 @@ local function EnsureClientPossession()
 
     FindAllOf("PlayerController", function(pc)
         if not IsValidObj(pc) then return end
+        if IsLocalController(pc) then return end
         local pawn = GetControllerPawn(pc)
         if not pawn then
             pcall(function()
                 gm:RestartPlayer(pc)
             end)
+            pcall(function()
+                if pc.ClientRestart then
+                    pc:ClientRestart()
+                end
+            end)
             Log("RestartPlayer issued for controller: " .. DescribeArg(pc))
         end
     end)
+end
+
+local function FixClientInput()
+    local now = os.clock()
+    if now - State.LastInputFix < 2.0 then
+        return
+    end
+    State.LastInputFix = now
+
+    local pc = FindFirstOf("PlayerController")
+    if not IsValidObj(pc) then return end
+
+    local did = false
+    pcall(function()
+        if pc.SetInputModeGameOnly then
+            pc:SetInputModeGameOnly()
+            did = true
+        end
+    end)
+    pcall(function()
+        if pc.SetIgnoreMoveInput then
+            pc:SetIgnoreMoveInput(false)
+            did = true
+        end
+        if pc.SetIgnoreLookInput then
+            pc:SetIgnoreLookInput(false)
+            did = true
+        end
+    end)
+    pcall(function()
+        if pc.SetShowMouseCursor then
+            pc:SetShowMouseCursor(false)
+            did = true
+        elseif pc.bShowMouseCursor ~= nil then
+            pc.bShowMouseCursor = false
+            did = true
+        end
+    end)
+
+    if did then
+        Log("Client input unblocked")
+    end
 end
 
 local function RunInGameThread(fn)
@@ -1023,8 +1107,11 @@ local function RegisterTickHook()
                 end
             end
 
-            if State.IsHosting or (State.HostRequestedAt > 0 and (now - State.HostRequestedAt) < 60.0) then
+            if HasAuthority() then
                 CheckClientConnections()
+                EnsureClientPossession()
+            elseif HasServerConnection() then
+                FixClientInput()
             end
 
             local pressed = IsLeftMousePressed()
