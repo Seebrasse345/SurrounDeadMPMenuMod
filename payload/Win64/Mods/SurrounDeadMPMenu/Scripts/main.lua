@@ -2,7 +2,7 @@
 -- Shows the built-in MP menu (if hidden) and wires Host/Join to open commands.
 
 local MOD_NAME = "SurrounDeadMPMenu"
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 
 local Config = {
     HostMap = "LongdownValley",
@@ -46,6 +46,30 @@ end
 
 local FindGameNetDriver
 
+local function FStringToString(value)
+    if value == nil then return nil end
+    if type(value) == "string" then return value end
+    local ok, str = pcall(function()
+        if (type(value) == "userdata" or type(value) == "table") and value.ToString then
+            return value:ToString()
+        end
+        return tostring(value)
+    end)
+    if not ok then return nil end
+    if not str or str == "" then return nil end
+    if str:find("FString:", 1, true) then
+        return nil
+    end
+    return str
+end
+
+local function IsPathLike(path)
+    if not path or path == "" then return false end
+    if path:match("^[A-Za-z]:[\\/].+") then return true end
+    if path:match("^\\\\") then return true end
+    return false
+end
+
 local function NormalizePath(path)
     if not path then return nil end
     return tostring(path):gsub("/", "\\")
@@ -74,7 +98,7 @@ end
 
 local function GetModDir()
     local scriptDir = GetScriptDir()
-    return (scriptDir:gsub("[\\/]+Scripts[\\/]+$", "\\"))
+    return (scriptDir:gsub("[\\/]+[Ss]cripts[\\/]+$", "\\"))
 end
 
 local function GetProjectDir()
@@ -83,7 +107,7 @@ local function GetProjectDir()
         if StaticFindObject then
             local KSL = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
             if KSL and KSL.GetProjectDirectory then
-                dir = KSL:GetProjectDirectory()
+                dir = FStringToString(KSL:GetProjectDirectory())
             end
         end
     end)
@@ -98,7 +122,7 @@ local function GetModDirCandidates()
 
     local scriptDir = GetScriptDir()
     if scriptDir then
-        local modDir = scriptDir:gsub("[\\/]+Scripts[\\/]+$", "\\")
+        local modDir = scriptDir:gsub("[\\/]+[Ss]cripts[\\/]+$", "\\")
         modDir = EnsureTrailingSlash(modDir)
         if modDir then
             dirs[#dirs + 1] = modDir
@@ -107,8 +131,10 @@ local function GetModDirCandidates()
 
     local projectDir = GetProjectDir()
     if projectDir then
-        dirs[#dirs + 1] = EnsureTrailingSlash(projectDir .. "Binaries\\Win64\\Mods\\" .. MOD_NAME)
-        dirs[#dirs + 1] = EnsureTrailingSlash(projectDir .. "SurrounDead\\Binaries\\Win64\\Mods\\" .. MOD_NAME)
+        local cand1 = EnsureTrailingSlash(projectDir .. "Binaries\\Win64\\Mods\\" .. MOD_NAME)
+        local cand2 = EnsureTrailingSlash(projectDir .. "SurrounDead\\Binaries\\Win64\\Mods\\" .. MOD_NAME)
+        dirs[#dirs + 1] = cand1
+        dirs[#dirs + 1] = cand2
     end
 
     if os.getenv then
@@ -121,9 +147,10 @@ local function GetModDirCandidates()
     local unique = {}
     local result = {}
     for _, dir in ipairs(dirs) do
-        if dir and not unique[dir] then
-            unique[dir] = true
-            result[#result + 1] = dir
+        local normalized = NormalizePath(dir)
+        if normalized and IsPathLike(normalized) and not unique[normalized] then
+            unique[normalized] = true
+            result[#result + 1] = normalized
         end
     end
 
