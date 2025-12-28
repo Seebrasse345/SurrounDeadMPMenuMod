@@ -2,7 +2,7 @@
 -- Shows the built-in MP menu (if hidden) and wires Host/Join to open commands.
 
 local MOD_NAME = "SurrounDeadMPMenu"
-local VERSION = "1.1.1"
+local VERSION = "1.2.0"
 
 local Config = {
     HostMap = "LongdownValley",
@@ -22,6 +22,9 @@ local State = {
     LastStatusLog = 0,
     HostRequestedAt = 0,
     IsHosting = false,
+    LastConnCount = -1,
+    NextConnCheck = 0,
+    ConnHooksInstalled = false,
 }
 
 local function Log(msg)
@@ -185,6 +188,69 @@ local function ReadTrimmedFileFromCandidates(filename)
         end
     end
     return nil, nil
+end
+
+local function DescribeArg(arg)
+    if arg == nil then return "nil" end
+    local t = type(arg)
+    if t == "string" then return arg end
+    if t == "number" or t == "boolean" then return tostring(arg) end
+    if t == "userdata" or t == "table" then
+        local ok, str = pcall(function()
+            if arg.ToString then
+                return arg:ToString()
+            end
+            return tostring(arg)
+        end)
+        if ok and str and str ~= "" then
+            return str
+        end
+    end
+    return tostring(arg)
+end
+
+local function GetTArrayNum(arr)
+    if not arr then return nil end
+    local ok, num = pcall(function()
+        if arr.Num then
+            if type(arr.Num) == "function" then
+                return arr:Num()
+            end
+            return arr.Num
+        end
+        if arr.GetArrayNum then
+            return arr:GetArrayNum()
+        end
+        if arr.Length then
+            return arr.Length
+        end
+        return nil
+    end)
+    if ok and type(num) == "number" then
+        return num
+    end
+    return nil
+end
+
+local function CheckClientConnections()
+    local now = os.clock()
+    if now < State.NextConnCheck then
+        return
+    end
+    State.NextConnCheck = now + 1.0
+
+    local NetDriver = FindGameNetDriver()
+    if not NetDriver then
+        return
+    end
+    local count = nil
+    pcall(function()
+        count = GetTArrayNum(NetDriver.ClientConnections)
+    end)
+    if count ~= nil and count ~= State.LastConnCount then
+        Log("Client connections: " .. tostring(count))
+        State.LastConnCount = count
+    end
 end
 
 local function RunInGameThread(fn)
@@ -788,6 +854,37 @@ local function TryRegisterHook(funcPath, cb)
     return ok
 end
 
+local function RegisterConnectionHooks()
+    if State.ConnHooksInstalled then return end
+    State.ConnHooksInstalled = true
+
+    local hookDefs = {
+        { path = "/Script/Engine.GameModeBase:PreLogin", label = "PreLogin" },
+        { path = "/Script/Engine.GameModeBase:PostLogin", label = "PostLogin" },
+        { path = "/Script/Engine.GameModeBase:Login", label = "Login" },
+        { path = "/Script/Engine.GameModeBase:Logout", label = "Logout" },
+        { path = "/Script/Engine.GameMode:PreLogin", label = "PreLogin" },
+        { path = "/Script/Engine.GameMode:PostLogin", label = "PostLogin" },
+        { path = "/Script/Engine.GameMode:Login", label = "Login" },
+        { path = "/Script/Engine.GameMode:Logout", label = "Logout" },
+    }
+
+    for _, def in ipairs(hookDefs) do
+        TryRegisterHook(def.path, function(self, ...)
+            local parts = {}
+            local args = { ... }
+            for i = 1, #args do
+                parts[#parts + 1] = DescribeArg(args[i])
+            end
+            local suffix = ""
+            if #parts > 0 then
+                suffix = " | " .. table.concat(parts, " | ")
+            end
+            Log("Conn " .. def.label .. suffix)
+        end)
+    end
+end
+
 local function RegisterTickHook()
     local hookPaths = {
         "/Script/Engine.GameViewportClient:Tick",
@@ -818,6 +915,10 @@ local function RegisterTickHook()
                 else
                     State.PendingStatusCheck = now + 2.0
                 end
+            end
+
+            if State.IsHosting or (State.HostRequestedAt > 0 and (now - State.HostRequestedAt) < 60.0) then
+                CheckClientConnections()
             end
 
             local pressed = IsLeftMousePressed()
@@ -881,6 +982,7 @@ local function Initialize()
 
     RegisterTickHook()
     RegisterKeybinds()
+    RegisterConnectionHooks()
 end
 
 Initialize()
