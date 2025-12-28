@@ -171,6 +171,11 @@ function Ensure-IniSectionLines {
 function Ensure-IpNetDriverConfig {
     $engineIni = Join-Path $env:LOCALAPPDATA 'SurrounDead\Saved\Config\Windows\Engine.ini'
 
+    Ensure-IniSectionLines -IniPath $engineIni -SectionHeader '[/Script/Engine.Engine]' -DesiredLines @(
+        '!NetDriverDefinitions=ClearArray',
+        '+NetDriverDefinitions=(DefName="GameNetDriver",DriverClassName="/Script/OnlineSubsystemUtils.IpNetDriver",DriverClassNameFallback="/Script/OnlineSubsystemUtils.IpNetDriver")'
+    )
+
     Ensure-IniSectionLines -IniPath $engineIni -SectionHeader '[/Script/Engine.GameEngine]' -DesiredLines @(
         '!NetDriverDefinitions=ClearArray',
         '+NetDriverDefinitions=(DefName="GameNetDriver",DriverClassName="/Script/OnlineSubsystemUtils.IpNetDriver",DriverClassNameFallback="/Script/OnlineSubsystemUtils.IpNetDriver")'
