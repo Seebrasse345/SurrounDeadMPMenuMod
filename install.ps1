@@ -184,6 +184,15 @@ function Ensure-IpNetDriverConfig {
     Ensure-IniSectionLines -IniPath $engineIni -SectionHeader '[URL]' -DesiredLines @(
         'Port=7777'
     )
+
+    Ensure-IniSectionLines -IniPath $engineIni -SectionHeader '[OnlineSubsystem]' -DesiredLines @(
+        'DefaultPlatformService=Null'
+    )
+
+    Ensure-IniSectionLines -IniPath $engineIni -SectionHeader '[OnlineSubsystemSteam]' -DesiredLines @(
+        'bEnabled=false',
+        'bUseSteamNetworking=false'
+    )
 }
 
 function Get-ModConfigSnapshot {
