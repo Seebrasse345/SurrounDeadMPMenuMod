@@ -105,6 +105,38 @@ function Ensure-ConsoleKeys {
     Set-Content -LiteralPath $inputIni -Value $lines -Encoding ASCII
 }
 
+function Get-ModConfigSnapshot {
+    param([string]$ModDir)
+
+    $snapshot = @{}
+    $files = @('join_ip.txt', 'host_map.txt')
+    foreach ($file in $files) {
+        $path = Join-Path $ModDir $file
+        if (Test-Path -LiteralPath $path) {
+            try {
+                $snapshot[$file] = Get-Content -LiteralPath $path -Raw
+            } catch {
+                # Ignore read errors
+            }
+        }
+    }
+    return $snapshot
+}
+
+function Restore-ModConfigSnapshot {
+    param([string]$ModDir, [hashtable]$Snapshot)
+
+    if (-not $Snapshot) { return }
+    foreach ($key in $Snapshot.Keys) {
+        $path = Join-Path $ModDir $key
+        try {
+            Set-Content -LiteralPath $path -Value $Snapshot[$key] -Encoding ASCII
+        } catch {
+            # Ignore write errors
+        }
+    }
+}
+
 $payloadWin64 = Join-Path $PSScriptRoot 'payload\Win64'
 if (-not (Test-Path -LiteralPath $payloadWin64)) {
     Write-Error "Payload not found: $payloadWin64"
@@ -156,10 +188,15 @@ foreach ($file in $loaderFiles) {
 $modSrc = Join-Path $payloadWin64 'Mods\SurrounDeadMPMenu'
 $modDst = Join-Path $destMods 'SurrounDeadMPMenu'
 if (Test-Path -LiteralPath $modSrc) {
+    $snapshot = $null
     if (Test-Path -LiteralPath $modDst) {
+        $snapshot = Get-ModConfigSnapshot -ModDir $modDst
         Backup-IfExists -Path $modDst
     }
     Copy-Item -Recurse -Force -LiteralPath $modSrc -Destination $destMods
+    if ($snapshot) {
+        Restore-ModConfigSnapshot -ModDir $modDst -Snapshot $snapshot
+    }
 }
 
 $modsTxt = Join-Path $destMods 'mods.txt'
